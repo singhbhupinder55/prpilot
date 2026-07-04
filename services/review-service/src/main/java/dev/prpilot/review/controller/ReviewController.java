@@ -12,7 +12,10 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/reviews")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = {
+    "http://localhost:5173",
+    "https://pr-pilot-ai-code-review-platform.vercel.app"
+})
 public class ReviewController {
 
     private final ReviewRepository reviewRepository;

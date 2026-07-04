@@ -12,7 +12,7 @@ microservices system deployed to production.
 
 ## 🚀 Live Demo
 
-**Dashboard:** `https://prpilot.vercel.app` *(coming soon)*
+**Dashboard:** `https://pr-pilot-ai-code-review-platform.vercel.app`
 
 **Webhook endpoint:** `https://prpilot-ai-code-review-platform-production.up.railway.app/webhooks/github`
 
