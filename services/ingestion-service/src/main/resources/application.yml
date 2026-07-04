@@ -3,9 +3,9 @@ spring:
     name: ingestion-service
 
   datasource:
-    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:prpilot}
-    username: ${POSTGRES_USER:prpilot}
-    password: ${POSTGRES_PASSWORD:prpilot_dev}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/prpilot}
+    username: ${SPRING_DATASOURCE_USERNAME:prpilot}
+    password: ${SPRING_DATASOURCE_PASSWORD:prpilot_dev}
     driver-class-name: org.postgresql.Driver
 
   jpa:
