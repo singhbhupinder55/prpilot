@@ -12,6 +12,8 @@ microservices system deployed to production.
 
 ## 🚀 Live Demo
 
+**Dashboard:** `https://prpilot.vercel.app` *(coming soon)*
+
 **Webhook endpoint:** `https://prpilot-ai-code-review-platform-production.up.railway.app/webhooks/github`
 
 Open a pull request on any connected GitHub repo — PRPilot automatically
@@ -33,23 +35,23 @@ posts a Claude-generated review within ~30 seconds.
 
 **2. Open a pull request — that's it.**
 
-PRPilot will clone the repo, analyze the codebase using semantic search,
+PRPilot will clone the repo, analyze the codebase via semantic search,
 fetch the actual PR diff, and post a structured Claude review as a comment.
 
-> **Note:** Works best on public repos. Private repos require additional
-> GitHub App configuration not included in this v1 deployment.
+> Works best on public repos. Private repos require additional GitHub App
+> configuration not included in this v1 deployment.
 
 ## Status
 
-✅ **Backend complete and deployed to production.**
+✅ **Backend complete and deployed. Frontend live.**
 
-| Service | Status |
+| Component | Status |
 |---|---|
 | `webhook-service` | ✅ Live — receives GitHub PR webhooks, HMAC-SHA256 verified |
 | `ingestion-service` | ✅ Live — clones repos, chunks code, generates embeddings |
 | `review-service` | ✅ Live — fetches real PR diff, RAG retrieval, Claude review |
 | `notification-service` | ✅ Live — posts review comments back to GitHub PRs |
-| `frontend` | ⏳ Planned — React dashboard showing review history |
+| `frontend` | ✅ Built — React dashboard showing review history and detail |
 
 ## Architecture
 
@@ -77,6 +79,11 @@ Neon Postgres + pgvector              publish to reviews.completed
                                     notification-service (:8084)
                                       POST PR comment via GitHub API
                                       → 🤖 PRPilot AI Review
+                                               │
+                                               ▼
+                                    frontend (React + Vite)    ← Vercel
+                                      review history dashboard
+                                      review detail view
 ```
 
 ## Tech stack
@@ -89,14 +96,14 @@ Neon Postgres + pgvector              publish to reviews.completed
 - **Embeddings:** Voyage AI (`voyage-code-2`, 1536-dim, code-specialized)
 - **AI review:** Claude API (`claude-haiku-4-5`)
 - **GitHub integration:** Webhooks (inbound) + REST API (diff fetch + PR comments)
+- **Frontend:** React, TypeScript, Vite, Tailwind CSS
 - **Testing:** JUnit 5, Testcontainers, Mockito, Awaitility — 31 tests total
 - **CI:** GitHub Actions — 4 workflows, CI-first development
-- **Deployment:** Railway (4 services), Neon (Postgres), Confluent Cloud (Kafka)
-- **Frontend (planned):** React, TypeScript, Vercel
+- **Deployment:** Railway (backend), Vercel (frontend), Neon (Postgres), Confluent Cloud (Kafka)
 
 ## Local development
 
-Requires Docker, Java 21, Gradle, and env vars in `~/.zshrc`:
+Requires Docker, Java 21, Gradle, Node 20+, and env vars in `~/.zshrc`:
 
 ```bash
 export VOYAGE_API_KEY="your-voyage-key"
@@ -110,13 +117,21 @@ Start infrastructure:
 docker compose up -d
 ```
 
-Run services (each terminal, `source ~/.zshrc` first):
+Run backend services (each terminal, `source ~/.zshrc` first):
 
 ```bash
 cd services/webhook-service      && ./gradlew bootRun   # :8081
 cd services/ingestion-service    && ./gradlew bootRun   # :8082
 cd services/review-service       && ./gradlew bootRun   # :8083
 cd services/notification-service && ./gradlew bootRun   # :8084
+```
+
+Run frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev   # http://localhost:5173
 ```
 
 Simulate a webhook locally:
@@ -146,16 +161,16 @@ curl -i -X POST http://localhost:8081/webhooks/github \
 - JGit shallow clone (depth=1), 60-line chunking, source file filtering
 - Voyage AI batched embedding with exponential backoff retry on rate limits
 - pgvector HNSW index for sub-linear approximate nearest-neighbor search
-- **11 tests:** smoke test + CodeChunker unit tests (boundaries, filtering, isolation)
+- **11 tests:** smoke test + CodeChunker unit tests
 
 ### review-service
-- Fetches real PR diff via GitHub API (`/pulls/{pr}/files`) — actual changed
-  code used as RAG query, not just PR title/metadata
+- Fetches real PR diff via GitHub API (`/pulls/{pr}/files`)
 - Separate Kafka consumer group from ingestion
 - Query embedding (`input_type: query`) + pgvector cosine similarity search
 - Top-8 chunk retrieval + real diff → structured Claude prompt
 - Review status tracking: `PENDING` → `COMPLETED` / `FAILED`
 - Idempotent: duplicate `deliveryId` skipped to prevent double-billing
+- REST API (`/api/reviews`) consumed by the frontend dashboard
 - **7 tests:** prompt unit tests + Testcontainers integration tests
 
 ### notification-service
@@ -164,25 +179,31 @@ curl -i -X POST http://localhost:8081/webhooks/github \
 - No database — pure Kafka consumer + HTTP client
 - **4 tests:** unit tests + Testcontainers integration test
 
+### frontend
+- React + TypeScript + Vite + Tailwind CSS
+- Reviews list with status badges (PENDING/COMPLETED/FAILED)
+- Review detail with full Claude review text
+- Auto-refreshes every 30 seconds
+- Deployed on Vercel, calls Railway backend
+
 ## Production infrastructure
 
 | Component | Provider | Notes |
 |---|---|---|
-| 4 Spring Boot services | Railway (Hobby) | Auto-deploy from GitHub on push |
+| 4 Spring Boot services | Railway (Hobby) | Auto-deploy from GitHub |
 | Postgres + pgvector | Neon | Serverless, free tier, pgvector enabled |
 | Kafka | Confluent Cloud | `pr.events` (3 partitions), `reviews.completed` (1 partition) |
-| Embeddings | Voyage AI | `voyage-code-2`, 1536-dim, code-specialized |
+| Embeddings | Voyage AI | `voyage-code-2`, 1536-dim |
 | AI review | Anthropic | `claude-haiku-4-5` |
+| Frontend | Vercel | Auto-deploy from GitHub, `frontend/` root |
 
 ## Known limitations / planned improvements
 
-- **Diff truncation:** PRs with diffs >8,000 chars are truncated — a smarter
-  approach would prioritize the most-changed files
-- **Line-based chunking:** 60-line fixed windows can split functions mid-body;
-  AST-aware chunking (tree-sitter / JavaParser) would improve retrieval quality
-- **Model cascading:** currently always uses Haiku; upgrading to Sonnet for
-  complex PRs would improve review depth
+- **Diff truncation:** PRs with diffs >8,000 chars are truncated
+- **Line-based chunking:** fixed 60-line windows can split functions mid-body
+- **Model cascading:** always uses Haiku; Sonnet for complex PRs is a planned upgrade
 - **Public repos only:** private repo support requires GitHub App installation tokens
+- **No auth on dashboard:** the review dashboard is public — auth layer is planned
 
 ## License
 
