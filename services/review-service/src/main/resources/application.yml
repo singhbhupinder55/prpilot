@@ -5,7 +5,7 @@ spring:
   flyway:
     ignore-migration-patterns: "*:Missing"
 
-datasource:
+  datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/prpilot}
     username: ${SPRING_DATASOURCE_USERNAME:prpilot}
     password: ${SPRING_DATASOURCE_PASSWORD:prpilot_dev}
