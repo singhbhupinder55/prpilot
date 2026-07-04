@@ -20,10 +20,10 @@ public class VoyageEmbeddingService {
     private final int batchSize;
 
     public VoyageEmbeddingService(
-            @Value("${voyage.api-key}") String apiKey,
-            @Value("${voyage.api-url}") String apiUrl,
-            @Value("${voyage.model}") String model,
-            @Value("${voyage.batch-size}") int batchSize) {
+            @Value("${prpilot.voyage.api-key}") String apiKey,
+            @Value("${prpilot.voyage.api-url}") String apiUrl,
+            @Value("${prpilot.voyage.model}") String model,
+            @Value("${prpilot.voyage.batch-size}") int batchSize) {
 
         this.model = model;
         this.batchSize = batchSize;
