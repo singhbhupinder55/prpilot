@@ -32,7 +32,7 @@ spring:
         spring.json.value.default.type: dev.prpilot.review.model.PullRequestEvent
 
 server:
-  port: 8083
+  port: ${PORT:8083}
 
 prpilot:
   kafka:
