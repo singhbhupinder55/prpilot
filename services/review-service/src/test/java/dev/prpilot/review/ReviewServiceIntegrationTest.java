@@ -2,6 +2,7 @@ package dev.prpilot.review;
 
 import dev.prpilot.review.claude.ClaudeReviewService;
 import dev.prpilot.review.embedding.VoyageEmbeddingService;
+import dev.prpilot.review.github.GitHubDiffService;
 import dev.prpilot.review.model.Review;
 import dev.prpilot.review.repository.ReviewRepository;
 import dev.prpilot.review.retrieval.RagRetrievalService;
@@ -26,6 +27,7 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
@@ -33,8 +35,6 @@ import static org.mockito.Mockito.when;
 @Testcontainers
 class ReviewServiceIntegrationTest {
 
-    // Use plain PostgreSQLContainer (not @ServiceConnection) so we can
-    // enable the pgvector extension manually before Spring connects
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
             DockerImageName.parse("pgvector/pgvector:pg16"))
@@ -48,13 +48,10 @@ class ReviewServiceIntegrationTest {
 
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {
-        // Point Spring at the test containers
         registry.add("spring.datasource.url", postgres::getJdbcUrl);
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
-
-        // Dummy API keys so Spring context starts without real credentials
         registry.add("prpilot.anthropic.api-key", () -> "test-key");
         registry.add("prpilot.anthropic.api-url",
                 () -> "https://api.anthropic.com/v1/messages");
@@ -64,10 +61,11 @@ class ReviewServiceIntegrationTest {
         registry.add("prpilot.voyage.api-url",
                 () -> "https://api.voyageai.com/v1/embeddings");
         registry.add("prpilot.voyage.model", () -> "voyage-code-2");
+        registry.add("prpilot.github.token", () -> "test-token");
+        registry.add("prpilot.github.api-url", () -> "https://api.github.com");
     }
 
-    // Mock ALL three external-facing services so no real HTTP calls happen
-    // and the empty code_chunks table doesn't cause SQL errors
+    // Mock all external API dependencies — no real HTTP calls in tests
     @MockitoBean
     VoyageEmbeddingService voyageEmbeddingService;
 
@@ -76,6 +74,9 @@ class ReviewServiceIntegrationTest {
 
     @MockitoBean
     RagRetrievalService ragRetrievalService;
+
+    @MockitoBean
+    GitHubDiffService gitHubDiffService;
 
     @Autowired
     KafkaTemplate<String, String> kafkaTemplate;
@@ -86,6 +87,9 @@ class ReviewServiceIntegrationTest {
     @Test
     @DisplayName("PR event triggers review creation with COMPLETED status")
     void prEventCreatesCompletedReview() throws Exception {
+        // Arrange — mock all external calls
+        when(gitHubDiffService.fetchPrDiff(anyString(), anyLong()))
+                .thenReturn("+ added exponential backoff logic\n- removed fixed delay");
         when(voyageEmbeddingService.embedQuery(anyString()))
                 .thenReturn("[0.1,0.2,0.3]");
         when(ragRetrievalService.retrieveRelevantChunks(anyString(), anyString()))
@@ -95,9 +99,11 @@ class ReviewServiceIntegrationTest {
                 anyString(), anyString(), anyString(), anyString(), anyList()))
                 .thenReturn("## Code Review\n\nThis looks good overall.");
 
+        // Act — publish a PR event to Kafka
         kafkaTemplate.send("pr.events", "test/test-repo", buildPayload(
-                "integration-test-001", "Test PR", "sha-001", 1));
+                "integration-test-001", "Add exponential backoff", "sha-001", 1));
 
+        // Assert — wait for consumer to process
         await().atMost(30, TimeUnit.SECONDS).untilAsserted(() -> {
             Optional<Review> review = reviewRepository
                     .findByDeliveryId("integration-test-001");
@@ -113,6 +119,8 @@ class ReviewServiceIntegrationTest {
     @Test
     @DisplayName("duplicate delivery ID is skipped without creating a second review")
     void duplicateDeliveryIdIsSkipped() throws Exception {
+        when(gitHubDiffService.fetchPrDiff(anyString(), anyLong()))
+                .thenReturn("+ some changed code");
         when(voyageEmbeddingService.embedQuery(anyString()))
                 .thenReturn("[0.1,0.2,0.3]");
         when(ragRetrievalService.retrieveRelevantChunks(anyString(), anyString()))
@@ -121,13 +129,14 @@ class ReviewServiceIntegrationTest {
                 anyString(), anyString(), anyString(), anyString(), anyList()))
                 .thenReturn("Review content");
 
-        String payload = buildPayload("integration-test-002", "Dup PR", "sha-002", 2);
+        String payload = buildPayload(
+                "integration-test-002", "Dup PR", "sha-002", 2);
 
-        // Send twice
+        // Send twice — second should be skipped
         kafkaTemplate.send("pr.events", "test/test-repo", payload);
         kafkaTemplate.send("pr.events", "test/test-repo", payload);
 
-        // Wait for processing to complete
+        // Wait for processing
         await().atMost(30, TimeUnit.SECONDS).untilAsserted(() -> {
             Optional<Review> review = reviewRepository
                     .findByDeliveryId("integration-test-002");

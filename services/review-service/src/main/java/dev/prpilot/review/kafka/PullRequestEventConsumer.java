@@ -2,6 +2,7 @@ package dev.prpilot.review.kafka;
 
 import dev.prpilot.review.claude.ClaudeReviewService;
 import dev.prpilot.review.embedding.VoyageEmbeddingService;
+import dev.prpilot.review.github.GitHubDiffService;
 import dev.prpilot.review.model.PullRequestEvent;
 import dev.prpilot.review.model.Review;
 import dev.prpilot.review.repository.ReviewRepository;
@@ -25,6 +26,7 @@ public class PullRequestEventConsumer {
     private final ClaudeReviewService claudeReviewService;
     private final ReviewRepository reviewRepository;
     private final ReviewCompletedProducer reviewCompletedProducer;
+    private final GitHubDiffService gitHubDiffService;
 
     @Value("${prpilot.anthropic.model}")
     private String modelUsed;
@@ -96,6 +98,32 @@ public class PullRequestEventConsumer {
     }
 
     private String buildQueryText(PullRequestEvent event) {
+        // Try to fetch the real diff first
+        String diff = gitHubDiffService.fetchPrDiff(
+                event.repoFullName(), event.prNumber());
+
+        if (!diff.isBlank()) {
+            log.debug("Using real PR diff as query ({} chars)", diff.length());
+            return """
+                    Pull request: %s
+                    Repository: %s
+                    Author: %s
+                    Branch: %s -> %s
+
+                    Changed files:
+                    %s
+                    """.formatted(
+                    event.prTitle(),
+                    event.repoFullName(),
+                    event.prAuthor(),
+                    event.headBranch(),
+                    event.baseBranch(),
+                    diff);
+        }
+
+        // Fallback to metadata only if diff fetch failed
+        log.warn("Falling back to metadata-only query for delivery={}",
+                event.deliveryId());
         return """
                 Pull request: %s
                 Repository: %s
