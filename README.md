@@ -12,13 +12,11 @@ microservices system deployed to production.
 
 ## 🚀 Live Demo
 
-**Dashboard:** `https://prpilot.vercel.app` *(coming soon)*
-
-**Webhook endpoint:** `https://prpilot-ai-code-review-platform-production.up.railway.app/webhooks/github`
+**[→ Open Dashboard](https://pr-pilot-ai-code-review-platform.vercel.app)**
 
 Open a pull request on any connected GitHub repo — PRPilot automatically
 fetches the real diff, retrieves semantically similar code context, and
-posts a Claude-generated review within ~30 seconds.
+posts a Claude-generated review as a PR comment within ~30 seconds.
 
 ## How to connect your own GitHub repo
 
@@ -28,7 +26,7 @@ posts a Claude-generated review within ~30 seconds.
 
 | Field | Value |
 |---|---|
-| Payload URL | `https://prpilot-ai-code-review-platform-production.up.railway.app/webhooks/github` |
+| Payload URL | `https://prpilot-ai-code-review-platform-production-8ca1.up.railway.app/webhooks/github` |
 | Content type | `application/json` |
 | Secret | Contact the repo owner for the webhook secret |
 | Events | Pull requests only |
@@ -43,7 +41,7 @@ fetch the actual PR diff, and post a structured Claude review as a comment.
 
 ## Status
 
-✅ **Backend complete and deployed. Frontend live.**
+✅ **Fully deployed — backend and frontend live in production.**
 
 | Component | Status |
 |---|---|
@@ -51,7 +49,7 @@ fetch the actual PR diff, and post a structured Claude review as a comment.
 | `ingestion-service` | ✅ Live — clones repos, chunks code, generates embeddings |
 | `review-service` | ✅ Live — fetches real PR diff, RAG retrieval, Claude review |
 | `notification-service` | ✅ Live — posts review comments back to GitHub PRs |
-| `frontend` | ✅ Built — React dashboard showing review history and detail |
+| `frontend` | ✅ Live — React dashboard at [pr-pilot-ai-code-review-platform.vercel.app](https://pr-pilot-ai-code-review-platform.vercel.app) |
 
 ## Architecture
 
@@ -59,24 +57,24 @@ fetch the actual PR diff, and post a structured Claude review as a comment.
 GitHub PR opened
       │
       ▼
-webhook-service (:8081)                    ← Railway
+webhook-service                            ← Railway
   HMAC-SHA256 verified
       │
       ▼ Kafka: pr.events                   ← Confluent Cloud
       │
       ├──────────────────────────────────────────┐
       ▼                                          ▼
-ingestion-service (:8082)           review-service (:8083)
-  JGit shallow clone                  fetch real PR diff (GitHub API)
-  chunk source files                  embed diff as query (Voyage AI)
-  embed chunks (Voyage AI)            pgvector similarity search
-  store in pgvector                   top-8 chunks + diff → Claude
-      │                               structured review generated
+ingestion-service                     review-service
+  JGit shallow clone                    fetch real PR diff (GitHub API)
+  chunk source files                    embed diff as query (Voyage AI)
+  embed chunks (Voyage AI)              pgvector similarity search
+  store in pgvector                     top-8 chunks + diff → Claude
+      │                                 structured review generated
       ▼                                          │
-Neon Postgres + pgvector              publish to reviews.completed
+Neon Postgres + pgvector               publish to reviews.completed
 (code_chunks table)                             │
                                                ▼ Kafka: reviews.completed
-                                    notification-service (:8084)
+                                    notification-service
                                       POST PR comment via GitHub API
                                       → 🤖 PRPilot AI Review
                                                │
@@ -117,7 +115,7 @@ Start infrastructure:
 docker compose up -d
 ```
 
-Run backend services (each terminal, `source ~/.zshrc` first):
+Run backend services (each in its own terminal, `source ~/.zshrc` first):
 
 ```bash
 cd services/webhook-service      && ./gradlew bootRun   # :8081
@@ -184,26 +182,29 @@ curl -i -X POST http://localhost:8081/webhooks/github \
 - Reviews list with status badges (PENDING/COMPLETED/FAILED)
 - Review detail with full Claude review text
 - Auto-refreshes every 30 seconds
-- Deployed on Vercel, calls Railway backend
+- Deployed on Vercel, calls Railway backend via `VITE_API_URL` env var
 
 ## Production infrastructure
 
-| Component | Provider | Notes |
+| Component | Provider | URL / Notes |
 |---|---|---|
-| 4 Spring Boot services | Railway (Hobby) | Auto-deploy from GitHub |
+| webhook-service | Railway (Hobby) | Auto-deploy from `main` |
+| ingestion-service | Railway (Hobby) | Auto-deploy from `main` |
+| review-service | Railway (Hobby) | Auto-deploy from `main` |
+| notification-service | Railway (Hobby) | Auto-deploy from `main` |
 | Postgres + pgvector | Neon | Serverless, free tier, pgvector enabled |
 | Kafka | Confluent Cloud | `pr.events` (3 partitions), `reviews.completed` (1 partition) |
-| Embeddings | Voyage AI | `voyage-code-2`, 1536-dim |
+| Embeddings | Voyage AI | `voyage-code-2`, 1536-dim, code-specialized |
 | AI review | Anthropic | `claude-haiku-4-5` |
-| Frontend | Vercel | Auto-deploy from GitHub, `frontend/` root |
+| Frontend | Vercel | [pr-pilot-ai-code-review-platform.vercel.app](https://pr-pilot-ai-code-review-platform.vercel.app) |
 
 ## Known limitations / planned improvements
 
-- **Diff truncation:** PRs with diffs >8,000 chars are truncated
-- **Line-based chunking:** fixed 60-line windows can split functions mid-body
-- **Model cascading:** always uses Haiku; Sonnet for complex PRs is a planned upgrade
+- **Diff truncation:** PRs with diffs >8,000 chars are truncated — smarter approach would prioritize most-changed files
+- **Line-based chunking:** fixed 60-line windows can split functions mid-body; AST-aware chunking (tree-sitter) is the natural next step
+- **Model cascading:** currently always uses Haiku; upgrading to Sonnet for complex PRs would improve review depth
 - **Public repos only:** private repo support requires GitHub App installation tokens
-- **No auth on dashboard:** the review dashboard is public — auth layer is planned
+- **No auth on dashboard:** review dashboard is public — auth layer is planned for v2
 
 ## License
 
